@@ -61,7 +61,7 @@ document.addEventListener('DOMContentLoaded', async function() {
     template = template.replace(
       malformedSvgAttrValueRE,
       (_, escapedInDouble, escapedInSingle, doubledDouble, doubledSingle) =>
-        `="${escapedInDouble ?? escapedInSingle ?? doubledDouble ?? doubledSingle}"`
+        `="${escapedInDouble ?? escapedInSingle ?? doubledDouble ?? doubledSingle ?? ''}"`
     );
 
     const uuids = Object.keys(manifest);
