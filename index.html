@@ -56,13 +56,11 @@ document.addEventListener('DOMContentLoaded', async function() {
 
     const manifest = JSON.parse(manifestEl.textContent);
     let template = JSON.parse(templateEl.textContent);
-    template = template.replace(/<svg\b[\s\S]*?<\/svg>/gi, (svg) =>
-      svg
-        .replace(/=\s*"\\\"([^"]*?)\\\""/g, '="$1"')
-        .replace(/=\s*'\\\"([^']*?)\\\"'/g, '="$1"')
-        .replace(/=\s*""([^"]*?)""/g, '="$1"')
-        .replace(/=\s*''([^']*?)''/g, '="$1"')
-    );
+    template = template
+      .replace(/=\s*"\\\"([^"]*?)\\\""/g, '="$1"')
+      .replace(/=\s*'\\\"([^']*?)\\\"'/g, '="$1"')
+      .replace(/=\s*""([^"]+?)""/g, '="$1"')
+      .replace(/=\s*''([^']+?)''/g, '="$1"');
 
     const uuids = Object.keys(manifest);
     setStatus('Unpacking ' + uuids.length + ' assets...');
