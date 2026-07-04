@@ -853,6 +853,13 @@
   .rf-row .rf-acts { opacity: 0; transition: opacity .1s; }
   .rf-row:hover .rf-acts { opacity: 1; }
   .rf-row:hover { background: var(--accent-weak, rgba(120,120,255,.08)); }
+  .rf-table { min-width: 0; }
+  .rf-table-head { backdrop-filter: blur(2px); }
+  .rf-table-row .rf-table-cell-path,
+  .rf-table-row .rf-table-cell-key,
+  .rf-table-row .rf-table-cell-value { min-width: 0; }
+  .rf-table-row .rf-table-acts { opacity: 0; transition: opacity .1s; }
+  .rf-table-row:hover .rf-table-acts { opacity: 1; }
   .rf-node-toggle { transition: transform .12s ease; }
   textarea.rf-ta::placeholder { color: var(--text-faint,#9096ac); }
   @keyframes rf-pop { 0%{ transform: scale(.6); opacity:0 } 100%{ transform: scale(1); opacity:1 } }
