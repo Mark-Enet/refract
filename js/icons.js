@@ -33,7 +33,17 @@
       viewBox: '0 0 14 14',
       dangerouslySetInnerHTML: { __html: inner },
     });
-    if (extraStyle) attrs.style = extraStyle;
+    if (extraStyle) {
+      attrs.style = extraStyle.split(';').reduce(function (out, decl) {
+        var i = decl.indexOf(':');
+        if (i < 0) return out;
+        var key = decl.slice(0, i).trim();
+        if (!key) return out;
+        var camel = key.indexOf('--') === 0 ? key : key.replace(/-([a-z])/g, function (_, c) { return c.toUpperCase(); });
+        out[camel] = decl.slice(i + 1).trim();
+        return out;
+      }, {});
+    }
     return React.createElement('svg', attrs);
   }
 
