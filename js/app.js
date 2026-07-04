@@ -66,8 +66,11 @@ const IDENT = /^[A-Za-z_$][\w$]*$/;
 const LS_KEY = 'refract.studio.v2';
 const ROW_H = 22;
 const TABLE_ROW_H = 34;
+const TABLE_ROW_MIN_H = TABLE_ROW_H - 2;
 const TABLE_COLS = 'minmax(240px,2.2fr) minmax(120px,1.1fr) minmax(180px,1.4fr) minmax(74px,.6fr) auto';
 const INDEXED_SEG_RE = /\[\d+\]/;
+const TABLE_JSON_MAX_DEPTH = 2;
+const TABLE_XML_MIN_ROWS = 1;
 const MAX_PERSIST = 500000;
 
 function b64encode(str) { return btoa(unescape(encodeURIComponent(str))); }
@@ -859,11 +862,11 @@ class Component extends DCLogic {
     if (suitable && parsed.format === 'json') {
       const rootType = this.jsonType(parsed.value);
       if (rootType !== 'array' && rootType !== 'object') suitable = false;
-      else if (!hasArray && maxDepth > 2) suitable = false;
+      else if (!hasArray && maxDepth > TABLE_JSON_MAX_DEPTH) suitable = false;
     }
     if (suitable && parsed.format === 'xml') {
       const hasIndexedPath = rows.some(r => INDEXED_SEG_RE.test(r.path));
-      if (!hasIndexedPath && rows.length <= 1) suitable = false;
+      if (!hasIndexedPath && rows.length <= TABLE_XML_MIN_ROWS) suitable = false;
     }
     return { rows, suitable };
   }
@@ -874,7 +877,7 @@ class Component extends DCLogic {
     const copyValKey = n.path + ':value';
     const pathCopied = this.state.copied === copyPathKey;
     const valCopied = this.state.copied === copyValKey;
-    return h('div', { className: 'rf-table-row rf-row', style: { display: 'grid', gridTemplateColumns: TABLE_COLS, gap: '10px', alignItems: 'center', minHeight: (TABLE_ROW_H - 2) + 'px', padding: '6px 10px', borderBottom: '1px solid ' + tok.border + '66' } },
+    return h('div', { className: 'rf-table-row rf-row', style: { display: 'grid', gridTemplateColumns: TABLE_COLS, gap: '10px', alignItems: 'center', minHeight: TABLE_ROW_MIN_H + 'px', padding: '6px 10px', borderBottom: '1px solid ' + tok.border + '66' } },
       h('div', { className: 'rf-table-cell-path', title: row.path, style: { color: tok.accent, font: '600 11px/1.4 ' + tok.fontMono, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, row.path),
       h('div', { className: 'rf-table-cell-key', title: row.key, style: { color: n.vType === 'attr' ? tok.syn.attr : tok.syn.key, font: '500 12px/1.4 ' + tok.fontMono, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, this.hl(row.key, ctx, n.path, 'k')),
       h('div', { className: 'rf-table-cell-value', title: row.value, style: { color: this.valColor(n.vType, tok), font: '400 12px/1.4 ' + tok.fontMono, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, this.hl(row.value, ctx, n.path, 'v')),
