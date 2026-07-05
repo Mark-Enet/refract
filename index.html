@@ -130,7 +130,7 @@
         <div ref="{{ gutterRef }}" style="{{ gutterWrapStyle }}"><pre style="margin:0;padding:12px 8px 12px 0;font:400 13px/20px var(--font-mono);color:var(--text-faint,#9096ac);text-align:right">{{ gutterText }}</pre></div>
         <div style="position:relative;flex:1;min-width:0;overflow:hidden">
           <pre ref="{{ highlightRef }}" class="rf-scroll" aria-hidden="true" style="{{ highlightStyle }}">{{ highlightEl }}</pre>
-          <textarea ref="{{ editorRef }}" class="rf-ta rf-scroll" spellcheck="false" placeholder="Paste JSON or XML here, drop a file, or hit Sample…" defaultvalue="{{ input }}" onchange="{{ onInput }}" onscroll="{{ onEditorScroll }}" style="{{ taStyle }}"></textarea>
+          <textarea ref="{{ editorRef }}" class="rf-ta rf-scroll" spellcheck="false" placeholder="Paste JSON or XML here, drop a file, or hit Sample…" value="{{ input }}" onchange="{{ onInput }}" onscroll="{{ onEditorScroll }}" style="{{ taStyle }}"></textarea>
           <div style="{{ dropOverlayStyle }}">Drop file to load</div>
         </div>
       </div>
