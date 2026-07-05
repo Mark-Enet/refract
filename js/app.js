@@ -534,7 +534,27 @@ class Component extends DCLogic {
     return ('<?xml version="1.0" encoding="UTF-8"?>\n' + ser(doc.documentElement, 0)).trim();
   }
 
-  minifyXml(text) { return text.replace(/>\s+</g, '><').replace(/\s+/g, ' ').replace(/> </g, '><').trim(); }
+  minifyXml(text) {
+    const parsed = this.parseXML(text);
+    if (!parsed.ok) return text;
+
+    const stripWs = (node, preserve) => {
+      const keepWs = !!preserve || (node.nodeType === 1 && node.getAttribute && node.getAttribute('xml:space') === 'preserve');
+      const children = Array.from(node.childNodes || []);
+      children.forEach(child => {
+        if (child.nodeType === 3) {
+          if (!keepWs && (!child.textContent || !child.textContent.trim())) node.removeChild(child);
+          return;
+        }
+        stripWs(child, keepWs);
+      });
+    };
+
+    stripWs(parsed.doc, false);
+    const out = new XMLSerializer().serializeToString(parsed.doc);
+    const decl = text.match(/^\s*(<\?xml[\s\S]*?\?>)/i);
+    return decl ? (decl[1] + out.replace(/^\s*<\?xml[\s\S]*?\?>\s*/i, '')) : out;
+  }
 
   sortKeys() {
     const p = this.parse(this.state.input);
