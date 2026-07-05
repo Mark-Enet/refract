@@ -631,11 +631,13 @@ class Component extends DCLogic {
     return out;
   }
 
-  copy(text, key) {
-    try { navigator.clipboard.writeText(text == null ? '' : String(text)); } catch (e) {}
+  async copy(text, key) {
+    const ok = await this.writeClipboard(text == null ? '' : String(text));
+    if (!ok) return false;
     clearTimeout(this._copyTimer);
     this.setState({ copied: key });
     this._copyTimer = setTimeout(() => this.setState({ copied: null }), 1100);
+    return true;
   }
 
   // ---------- formatting ----------
@@ -1140,11 +1142,17 @@ class Component extends DCLogic {
       else {
         queryStat = qr.results.length + (qr.results.length === 1 ? ' match' : ' matches');
         if (!qr.results.length) explorerEl = h('div', { style: { padding: '24px', color: tok.textFaint, font: '500 13px/1.5 ' + tok.fontUi } }, 'No matches for this query.');
-        else explorerEl = h('div', { style: { padding: '4px 6px' } }, qr.results.map((r, i) => h('div', { key: i, style: { padding: '9px 10px', borderRadius: '8px', marginBottom: '4px', background: tok.panel2, border: '1px solid ' + tok.border } },
-          h('div', { style: { display: 'flex', justifyContent: 'space-between', gap: '8px', marginBottom: '5px' } },
-            h('span', { style: { font: '600 11px/1.3 ' + tok.fontMono, color: tok.accent, wordBreak: 'break-all' } }, r.path),
-            h('button', { onClick: () => this.copy(typeof r.val === 'object' ? JSON.stringify(r.val, null, 2) : String(r.val), 'q' + i), style: { font: '600 9.5px/1 ' + tok.fontUi, textTransform: 'uppercase', color: this.state.copied === 'q' + i ? tok.sem.ok : tok.textDim, background: tok.elev, border: '1px solid ' + tok.border, borderRadius: '4px', padding: '3px 6px', cursor: 'pointer', flex: '0 0 auto' } }, this.state.copied === 'q' + i ? '✓' : 'copy')),
-          h('div', { style: { font: '400 12px/1.5 ' + tok.fontMono, color: tok.text, whiteSpace: 'pre-wrap', wordBreak: 'break-word', maxHeight: '160px', overflow: 'auto' } }, typeof r.val === 'object' ? JSON.stringify(r.val, null, 2) : String(r.val)))));
+        else explorerEl = h('div', { style: { padding: '4px 6px' } }, qr.results.map((r, i) => {
+          const copyKey = 'q' + i;
+          const valueText = typeof r.val === 'object' ? JSON.stringify(r.val, null, 2) : String(r.val);
+          return h('div', { key: i, style: { padding: '9px 10px', borderRadius: '8px', marginBottom: '4px', background: tok.panel2, border: '1px solid ' + tok.border } },
+            h('div', { style: { display: 'flex', justifyContent: 'space-between', gap: '8px', marginBottom: '5px' } },
+              h('span', { style: { font: '600 11px/1.3 ' + tok.fontMono, color: tok.accent, wordBreak: 'break-all' } }, r.path),
+              h('button', { onClick: () => this.copy(valueText, copyKey), style: { font: '600 9.5px/1 ' + tok.fontUi, textTransform: 'uppercase', color: this.state.copied === copyKey ? tok.sem.ok : tok.textDim, background: tok.elev, border: '1px solid ' + tok.border, borderRadius: '4px', padding: '3px 6px', cursor: 'pointer', flex: '0 0 auto' } }, this.state.copied === copyKey ? '✓' : 'copy')
+            ),
+            h('div', { style: { font: '400 12px/1.5 ' + tok.fontMono, color: tok.text, whiteSpace: 'pre-wrap', wordBreak: 'break-word', overflow: 'visible' } }, valueText)
+          );
+        }));
       }
     } else if (S.view === 'raw') {
       const src = parsed.empty ? '' : S.input;
