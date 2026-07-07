@@ -67,6 +67,7 @@ const LS_KEY = 'refract.studio.v2';
 const ROW_H = 22;
 const TABLE_ROW_H = 34;
 const TABLE_ROW_MIN_H = TABLE_ROW_H - 2;
+const RECORD_ROW_H = TABLE_ROW_H;
 const TABLE_COLS = 'minmax(240px,2.2fr) minmax(120px,1.1fr) minmax(180px,1.4fr) minmax(150px,1fr)';
 const INDEXED_SEG_RE = /\[\d+\]/;
 const TABLE_JSON_MAX_DEPTH = 2;
@@ -203,6 +204,7 @@ class Component extends DCLogic {
       showHelp: false,
       showAbout: false,
       showSettings: false,
+      queryDrawerCollapsed: false,
       shareMsg: null,
       appMeta: APP_META_DEFAULT,
       rememberPrefs: sanitizeRememberPrefs(P.rememberPrefs),
@@ -220,6 +222,7 @@ class Component extends DCLogic {
     this._copyTimer = null;
     this._model = null;
     this._activeRowIndex = -1;
+    this._activeRowHeight = ROW_H;
     this._tableCache = null;
     this._raf = null;
     this._persistTimer = null;
@@ -261,8 +264,11 @@ class Component extends DCLogic {
     if (this._lastMatch !== this.state.matchIndex) {
       this._lastMatch = this.state.matchIndex;
       if (this._activeRowIndex >= 0 && box) {
-        const target = Math.max(0, this._activeRowIndex * ROW_H - box.clientHeight / 2 + ROW_H);
+        const rowH = this._activeRowHeight || ROW_H;
+        const target = Math.max(0, this._activeRowIndex * rowH - box.clientHeight / 2 + rowH);
         box.scrollTop = target; this.setState({ scrollTop: target });
+      } else if (this.activeMatchRef.current) {
+        try { this.activeMatchRef.current.scrollIntoView({ block: 'center', inline: 'nearest' }); } catch (e) {}
       }
     }
     const rememberChanged = prevState && (
@@ -392,6 +398,39 @@ class Component extends DCLogic {
       if (found) return found;
     }
     return null;
+  }
+
+  jsonPathToTreePath(path) {
+    const src = (path || '').trim();
+    if (!src || src[0] !== '$') return null;
+    const segs = ['root'];
+    const re = /(?:\.([A-Za-z_$][\w$]*)|\[(\d+|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')\])/g;
+    let m;
+    while ((m = re.exec(src)) !== null) {
+      if (m[1]) segs.push(m[1]);
+      else if (m[2]) {
+        const raw = m[2];
+        if (/^\d+$/.test(raw)) segs.push(raw);
+        else {
+          try {
+            const key = this.jsonPathUnquote(raw);
+            segs.push(String(key));
+          } catch (e) {
+            return null;
+          }
+        }
+      }
+    }
+    return '/' + segs.join('/');
+  }
+
+  focusQueryResult(path) {
+    const nodePath = this.jsonPathToTreePath(path);
+    if (!nodePath) return;
+    const model = this.buildModel();
+    const target = this.locateNode(model.node, nodePath);
+    if (!target) return;
+    this.setState({ view: 'tree', collapsed: new Set() });
   }
 
   selectTableSource(path, mode) {
@@ -652,6 +691,47 @@ class Component extends DCLogic {
     };
     walk(node);
     return hits;
+  }
+
+  collectRawMatches(text, term) {
+    const hits = [];
+    const src = String(text || '');
+    const q = String(term || '').toLowerCase();
+    if (!src || !q) return hits;
+    const low = src.toLowerCase();
+    let from = 0;
+    while (true) {
+      const idx = low.indexOf(q, from);
+      if (idx === -1) break;
+      hits.push({ start: idx, end: idx + q.length });
+      from = idx + q.length;
+      if (hits.length >= 3000) break;
+    }
+    return hits;
+  }
+
+  renderRawSearch(text, term, hits, activeIdx, tok) {
+    const src = String(text || '');
+    if (!src || !term || !hits || !hits.length) return src;
+    const out = [];
+    let pos = 0;
+    for (let i = 0; i < hits.length; i++) {
+      const hHit = hits[i];
+      if (hHit.start > pos) out.push(src.slice(pos, hHit.start));
+      const isActive = i === activeIdx;
+      out.push(h('span', {
+        key: 'rawm' + i,
+        ref: isActive ? this.activeMatchRef : null,
+        style: {
+          background: isActive ? tok.match.active : tok.match.bg,
+          borderRadius: '2px',
+          boxShadow: isActive ? '0 0 0 1px ' + tok.accent : 'none',
+        }
+      }, src.slice(hHit.start, hHit.end)));
+      pos = hHit.end;
+    }
+    if (pos < src.length) out.push(src.slice(pos));
+    return out;
   }
 
   keepSet(node, term) {
@@ -1722,38 +1802,64 @@ class Component extends DCLogic {
       this._matchCache = { input: S.docInput, term, matches: term ? this.collectMatches(node, term) : [] };
     }
     const matches = this._matchCache.matches;
-    const activePath = matches.length ? matches[((S.matchIndex % matches.length) + matches.length) % matches.length] : null;
+    const rawMatches = (S.view === 'raw' && term) ? this.collectRawMatches(parsed.empty ? '' : S.input, term) : [];
+    const activePool = (S.view === 'raw' ? rawMatches : matches);
+    const activeIndex = activePool.length ? ((S.matchIndex % activePool.length) + activePool.length) % activePool.length : -1;
+    const activePath = (S.view === 'raw' || activeIndex < 0) ? null : matches[activeIndex];
     const ctx = { tok, term, activePath };
-    const matchLabel = matches.length ? (((S.matchIndex % matches.length) + matches.length) % matches.length + 1) + '/' + matches.length : '0/0';
+    const matchLabel = activePool.length ? (activeIndex + 1) + '/' + activePool.length : '0/0';
 
-    // query
+    // query (computed regardless of active view; results are shown in optional drawer)
     const savedQuery = S.query.trim();
     const query = S.explorerMode === 'query' ? savedQuery : '';
     let explorerEl, queryStat = '', queryStatOk = true;
+    let queryResults = [];
+    let queryError = '';
     if (query) {
       const qr = isXml ? this.runXPath(parsed.doc, query) : this.runJsonPath(parsed.ok ? parsed.value : {}, query);
-      if (!qr.ok) { queryStat = 'error'; queryStatOk = false; explorerEl = h('div', { style: { padding: '24px', color: tok.sem.err, font: '500 13px/1.5 ' + tok.fontUi } }, 'Query error: ' + (qr.error || 'invalid')); }
+      if (!qr.ok) { queryStat = 'error'; queryStatOk = false; queryError = qr.error || 'invalid'; }
       else {
-        queryStat = qr.results.length + (qr.results.length === 1 ? ' match' : ' matches');
-        if (!qr.results.length) explorerEl = h('div', { style: { padding: '24px', color: tok.textFaint, font: '500 13px/1.5 ' + tok.fontUi } }, 'No matches for this query.');
-        else explorerEl = h('div', { style: { padding: '4px 6px' } }, qr.results.map((r, i) => {
-          const copyKey = 'q' + i;
-          const valueText = typeof r.val === 'object' ? JSON.stringify(r.val, null, 2) : String(r.val);
-          return h('div', { key: i, style: { padding: '9px 10px', borderRadius: '8px', marginBottom: '4px', background: tok.panel2, border: '1px solid ' + tok.border } },
-            h('div', { style: { display: 'flex', justifyContent: 'space-between', gap: '8px', marginBottom: '5px' } },
-              h('span', { style: { font: '600 11px/1.3 ' + tok.fontMono, color: tok.accent, wordBreak: 'break-all' } }, r.path),
-              h('button', { onClick: () => this.copy(valueText, copyKey), style: { font: '600 9.5px/1 ' + tok.fontUi, textTransform: 'uppercase', color: this.state.copied === copyKey ? tok.sem.ok : tok.textDim, background: tok.elev, border: '1px solid ' + tok.border, borderRadius: '4px', padding: '3px 6px', cursor: 'pointer', flex: '0 0 auto' } }, this.state.copied === copyKey ? '✓' : 'copy')
-            ),
-            h('div', { style: { font: '400 12px/1.5 ' + tok.fontMono, color: tok.text, whiteSpace: 'pre-wrap', wordBreak: 'break-word', overflow: 'visible' } }, valueText)
-          );
-        }));
+        queryResults = qr.results || [];
+        queryStat = queryResults.length + (queryResults.length === 1 ? ' match' : ' matches');
       }
-    } else if (S.view === 'raw') {
+    }
+
+    const showQueryDrawer = S.explorerMode === 'query' && !!query && !S.queryDrawerCollapsed && (!queryStatOk || queryResults.length > 0);
+    const queryDrawerItems = queryResults.slice(0, 100).map((r, i) => {
+      const copyKey = 'q' + i;
+      const valueText = typeof r.val === 'object' ? JSON.stringify(r.val, null, 2) : String(r.val);
+      return {
+        id: i,
+        path: r.path,
+        valueText,
+        copyKey,
+      };
+    });
+    const queryDrawerEl = queryDrawerItems.map((item) => h('div', { key: item.id, className: 'rf-query-drawer-item' },
+      h('div', { className: 'rf-query-drawer-path', title: item.path }, item.path),
+      h('div', { className: 'rf-query-drawer-val', title: item.valueText }, item.valueText),
+      h('div', { className: 'rf-query-drawer-actions' },
+        h('button', { style: btnStyle, onClick: () => this.focusQueryResult(item.path) }, 'Focus'),
+        h('button', { style: btnStyle, onClick: () => this.copy(item.valueText, item.copyKey) }, 'Copy')
+      )
+    ));
+
+    if (S.view === 'raw') {
       const src = parsed.empty ? '' : S.input;
       const lines = src.split('\n');
-      explorerEl = h('div', { style: { display: 'flex', minWidth: 0 } },
+      const rawSearchActive = S.explorerMode === 'search' && S.searchMode === 'highlight' && !!term && rawMatches.length > 0;
+      const rawContent = rawSearchActive
+        ? this.renderRawSearch(src, term, rawMatches, activeIndex, tok)
+        : (src.length <= 60000 ? this.highlight(src, parsed.format, tok) : src);
+      const rawMain = h('div', { style: { display: 'flex', minWidth: 0 } },
         showLN ? h('pre', { style: { margin: 0, padding: '4px 10px 4px 0', textAlign: 'right', color: tok.textFaint, font: '400 13px/20px ' + tok.fontMono, borderRight: '1px solid ' + tok.border, flex: '0 0 auto' } }, lines.map((_, i) => (i + 1)).join('\n')) : null,
-        h('pre', { style: { margin: 0, padding: '4px 0 4px 12px', font: '400 13px/20px ' + tok.fontMono, whiteSpace: 'pre-wrap', wordBreak: 'break-word', flex: 1, minWidth: 0 } }, src.length <= 60000 ? this.highlight(src, parsed.format, tok) : src));
+        h('pre', { style: { margin: 0, padding: '4px 0 4px 12px', font: '400 13px/20px ' + tok.fontMono, whiteSpace: 'pre-wrap', wordBreak: 'break-word', flex: 1, minWidth: 0 } }, rawContent));
+      if (S.explorerMode === 'search' && S.searchMode === 'filter' && term) {
+        explorerEl = h('div', { style: { display: 'flex', flexDirection: 'column', gap: '8px' } },
+          h('div', { style: { margin: '8px 6px 0', padding: '8px 10px', borderRadius: '8px', border: '1px solid ' + tok.border, background: tok.panel2, color: tok.textDim, font: '500 12px/1.4 ' + tok.fontUi } }, 'Raw view supports Highlight search. Filter is available in Tree and Table views.'),
+          rawMain
+        );
+      } else explorerEl = rawMain;
     } else if (S.view === 'table') {
       const tableMode = S.tableMode || 'path';
       const filter = S.searchMode === 'filter';
@@ -1769,6 +1875,7 @@ class Component extends DCLogic {
       const table = this._tableCache.res;
       const rows = table.rows;
       this._activeRowIndex = -1;
+      this._activeRowHeight = tableMode === 'record' ? RECORD_ROW_H : TABLE_ROW_H;
       if (activePath) { const np = activePath.replace(/#[kv]$/, ''); this._activeRowIndex = rows.findIndex(r => r.node.path === np); }
       if (tableMode === 'record' && tableSourceNode && tableSourceNode.kind === 'leaf') {
         explorerEl = h('div', { style: { padding: '24px', display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '12px' } },
@@ -1825,6 +1932,7 @@ class Component extends DCLogic {
       }
       const rows = this._flatCache.rows;
       this._activeRowIndex = -1;
+      this._activeRowHeight = ROW_H;
       if (activePath) { const np = activePath.replace(/#[kv]$/, ''); this._activeRowIndex = rows.findIndex(r => r.node.path === np && r.type !== 'close'); }
       explorerEl = this.windowed(rows, ctx);
     }
@@ -1985,12 +2093,19 @@ class Component extends DCLogic {
       onModeHighlight: () => this.setState({ searchMode: 'highlight' }), onModeFilter: () => this.setState({ searchMode: 'filter' }),
       explorerMode: S.explorerMode, isSearchToolbarMode: S.explorerMode === 'search', isQueryToolbarMode: S.explorerMode === 'query',
       toolbarSearchStyle: seg(S.explorerMode === 'search'), toolbarQueryStyle: seg(S.explorerMode === 'query'),
-      onToolbarSearchMode: () => this.setState({ explorerMode: 'search' }), onToolbarQueryMode: () => this.setState({ explorerMode: 'query' }),
+      onToolbarSearchMode: () => this.setState({ explorerMode: 'search' }), onToolbarQueryMode: () => this.setState({ explorerMode: 'query', queryDrawerCollapsed: false }),
 
-      query: S.query, onQuery: (e) => this.setState({ query: e.target.value }), hasQuery: !!savedQuery,
+      query: S.query, onQuery: (e) => this.setState({ query: e.target.value, queryDrawerCollapsed: false }), hasQuery: !!savedQuery,
       queryPrefix: isXml ? 'XPath' : '$', queryPlaceholder: isXml ? "//departments[id='d2']  or  //title" : "$.store.departments[*].title",
       queryStat, queryStatStyle: { font: '600 11px/1 ' + tok.fontMono, color: queryStatOk ? tok.textDim : tok.sem.err, whiteSpace: 'nowrap' },
-      onClearQuery: () => this.setState({ query: '' }),
+      onClearQuery: () => this.setState({ query: '', queryDrawerCollapsed: false }),
+      showQueryDrawer,
+      queryDrawerTitle: queryStatOk ? ('Query results (' + queryResults.length + ')') : 'Query error',
+      queryDrawerError: queryError,
+      queryDrawerEl,
+      queryDrawerHasItems: queryDrawerItems.length > 0,
+      onToggleQueryDrawer: () => this.setState(s => ({ queryDrawerCollapsed: !s.queryDrawerCollapsed })),
+      onFocusQueryResult: (p) => this.focusQueryResult(p),
 
       explorerEl, statsEl,
 
